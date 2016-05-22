@@ -5,7 +5,7 @@ import sys
 import sqlite3
 import xlrd
 import xlwt
-from basic.common import ROOT_PATH, makeDirsForFile, existFile
+from basic.common import getrootpath, makeDirsForFile, existFile
 from basic.data import BIN2CHECK, SESSION, SESSION_ORDER, LESSON, LESSON_VB, LESSON_GRE, LESSON_ORDER, LESSON_COLUMN, VIDEO_LESSON, ROOM1103, ROOM1707
 
 reload(sys)
@@ -13,12 +13,12 @@ sys.setdefaultencoding('utf-8');
 
 
 def main():
-    rootpath = ROOT_PATH
+    rootpath = getrootpath()
     inputpath = os.path.join(rootpath, 'Data')
     outputpath = os.path.join(rootpath, 'Results')
 
-    date = '20160430'
-    # date = raw_input('Please input a date (e.g.: 20160430): ')
+    # date = '20160430'
+    date = raw_input('Please input a date (e.g.: 20160430): ')
     print '--'
 
     iPadContentsFile = os.path.join(inputpath, 'iPadContents.xls')

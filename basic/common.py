@@ -2,8 +2,24 @@
 
 import os
 
-ROOT_PATH = '/Users/iROCKBUNNY/Documents/Python/Y-English'
-# ROOT_PATH = '/home/Administrator/Y-English'
+
+ROOT_PATH = [
+    os.path.join(os.environ['HOME'], 'iPad-Allocation'),
+    os.path.join(os.environ['HOME'], 'GitHub/iPad-Allocation'),
+    os.path.join(os.environ['HOME'], 'Documents/Python/Y-English'),
+    os.path.join(os.environ['HOME'], 'Y-English'),
+]
+
+
+def getrootpath(paths=ROOT_PATH):
+    if isinstance(paths, list):
+        for path in ROOT_PATH:
+            if os.path.exists(path):
+                return path
+    elif isinstance(paths, str):
+        return paths
+    else:
+        pass
 
 
 def makeDirsForFile(filename):
