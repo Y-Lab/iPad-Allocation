@@ -6,7 +6,7 @@ import sqlite3
 import xlrd
 import xlwt
 from basic.common import getrootpath, makeDirsForFile, existFile
-from basic.data import BIN2CHECK, SESSION, SESSION_ORDER, LESSON, LESSON_VB, LESSON_GRE, LESSON_ORDER, LESSON_COLUMN, VIDEO_LESSON, ROOM1103, ROOM1707
+from basic.data import BIN2CHECK, VB_SESSION, Y_GRE_SESSION, SESSION_ORDER, SESSION_ORDER_NAME, SESSION_OVERLAP, LESSON, VB_LESSON, Y_GRE_LESSON, LESSON_ORDER, LESSON_COLUMN, VIDEO_LESSON, ROOM1103, ROOM1707
 
 reload(sys)
 sys.setdefaultencoding('utf-8');
@@ -17,7 +17,7 @@ def main():
     inputpath = os.path.join(rootpath, 'Data')
     outputpath = os.path.join(rootpath, 'Results')
 
-    # date = '20160430'
+    # date = '20160630'
     date = raw_input('Please input a date (e.g.: 20160430): ')
     print '--'
 
@@ -29,8 +29,8 @@ def main():
 
 
     # Connect to SQLite database
-    database = ':memory:'
-    # database = 'appointments_%s.db' % date
+    # database = ':memory:'
+    database = 'appointments_%s.db' % date
     if not existFile(database, overwrite=True, displayInfo=False):
         conn = sqlite3.connect(database)
     c = conn.cursor()
@@ -157,6 +157,7 @@ def main():
             CREATE TABLE appointments(
                 appointment_uid PRIMARY KEY,
                 name,
+                lesson_type,
                 lesson_status,
                 video_status,
                 session
@@ -174,16 +175,24 @@ def main():
     print 'Import data: %s -> %s/appointments' % (excelFile, database)
     table = data.sheet_by_index(0)
     headline = 1
-    count = 0
+    appointment_uid = 0
     for row in range(table.nrows):
         if row >= headline:
-            count += 1
+            appointment_uid += 1
             values = table.row_values(row)
 
             name = values[0]
             lesson_status = values[1]
             video_status = values[3]
             session = values[2]
+
+            # Obtain lesson type
+            if lesson_status in VB_LESSON:
+                lesson_type = u'VB'
+            elif lesson_status in Y_GRE_LESSON:
+                lesson_type = u'Y-GRE'
+            else:
+                print 'Invalid lesson status:', lesson_status
 
             # Validate lesson status
             try:
@@ -192,15 +201,16 @@ def main():
                 pass
 
             values = (
-                count,
+                appointment_uid,
                 name,
+                lesson_type,
                 lesson_status,
                 video_status,
                 session,
             )
 
             # Write data to *.db
-            c.execute('INSERT INTO appointments VALUES (?,?,?,?,?);', values)
+            c.execute('INSERT INTO appointments VALUES (?,?,?,?,?,?);', values)
 
     # Save (commit) the changes
     conn.commit()
@@ -214,31 +224,34 @@ def main():
             CREATE TABLE allocation_results(
                 allocation_uid PRIMARY KEY,
                 name,
+                lesson_type,
                 lesson_status,
                 lesson_order,
                 video_status,
                 session,
                 session_order,
-                ipad_label
+                ipad_label,
+                supplementary_ipad_label
             );
         ''')
     except Exception, e:
         print e
 
+    # Y-GRE Sessions
     iPadQuantity = []
-    for lesson in LESSON:
+    for lesson in Y_GRE_LESSON:
         c.execute('SELECT COUNT(ipad_label) FROM ipad_contents WHERE %s = 1;' % LESSON_COLUMN[lesson])
         iPadQuantity.append([lesson, c.fetchall()[0][0]])
     iPadQuantity.sort(key=lambda v: v[1])
-    LessonsSortedByiPadQuantity = [x[0] for x in iPadQuantity]
+    YGRELessonsSortedByiPadQuantity = [x[0] for x in iPadQuantity]
 
-    count = 0
-    for session in SESSION:
+    allocation_uid = 0
+    for session in Y_GRE_SESSION:
         allocatediPads = []
-        for lesson in LessonsSortedByiPadQuantity:
-            c.execute('SELECT name, lesson_status, video_status FROM appointments WHERE session = ? AND lesson_status = ?;', (session, lesson, ))
-            for name, lesson_status, video_status in c.fetchall():
-                count += 1
+        for lesson in YGRELessonsSortedByiPadQuantity:
+            c.execute('SELECT name, lesson_type, lesson_status, video_status FROM appointments WHERE session = ? AND lesson_status = ?;', (session, lesson, ))
+            for name, lesson_type, lesson_status, video_status in c.fetchall():
+                allocation_uid += 1
                 c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC;' % LESSON_COLUMN[lesson_status])
                 iPadCandidates = [x[0] for x in c.fetchall()]
                 allocated = False
@@ -250,24 +263,84 @@ def main():
                         break
                 if not allocated:
                     iPadCandidate = u'缺少资源'
-                    print name, lesson_status, session, iPadCandidate
+                    print name, lesson_type, lesson_status, session, iPadCandidate
 
                 lesson_order = LESSON_ORDER[lesson_status]
                 session_order = SESSION_ORDER[session]
 
+                iPadCandidate2 = u'N/A'
+
                 values = (
-                    count,
+                    allocation_uid,
                     name,
+                    lesson_type,
                     lesson_status,
                     lesson_order,
                     video_status,
                     session,
                     session_order,
                     iPadCandidate,
+                    iPadCandidate2,
                 )
 
                 # Write data to *.db
-                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?);', values)
+                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?,?);', values)
+
+    # Save (commit) the changes
+    conn.commit()
+    print '--'
+
+    # VB Sessions
+    iPadQuantity = []
+    for lesson in VB_LESSON:
+        c.execute('SELECT COUNT(ipad_label) FROM ipad_contents WHERE %s = 1;' % LESSON_COLUMN[lesson])
+        iPadQuantity.append([lesson, c.fetchall()[0][0]])
+    iPadQuantity.sort(key=lambda v: v[1])
+    VBLessonsSortedByiPadQuantity = [x[0] for x in iPadQuantity]
+
+    for session in VB_SESSION:
+        allocatediPads = []
+        for overlappedSession in SESSION_OVERLAP[session]:
+            c.execute('SELECT ipad_label FROM allocation_results WHERE session_order = ?;', (SESSION_ORDER[overlappedSession], ))
+            allocatediPads += [x[0] for x in c.fetchall()]
+        YGREAllocatediPads = allocatediPads
+        for lesson in VBLessonsSortedByiPadQuantity:
+            c.execute('SELECT name, lesson_type, lesson_status, video_status FROM appointments WHERE session = ? AND lesson_status = ?;', (session, lesson, ))
+            for name, lesson_type, lesson_status, video_status in c.fetchall():
+                allocation_uid += 1
+                c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC;' % LESSON_COLUMN[lesson_status])
+                iPadCandidates = [x[0] for x in c.fetchall()]
+                allocated = False
+                for iPadCandidate in iPadCandidates:
+                    if iPadCandidate not in allocatediPads:
+                        allocated = True
+                        allocatediPads.append(iPadCandidate)
+                        c.execute('UPDATE ipad_contents SET is_allocated = "Y" WHERE ipad_label = ?;', (iPadCandidate, ))
+                        break
+                if not allocated:
+                    iPadCandidate = u'缺少资源'
+                    print name, lesson_type, lesson_status, session, iPadCandidate
+
+                lesson_order = LESSON_ORDER[lesson_status]
+                session_order = SESSION_ORDER[session]
+
+                iPadCandidate2 = u'N/A'
+
+                values = (
+                    allocation_uid,
+                    name,
+                    lesson_type,
+                    lesson_status,
+                    lesson_order,
+                    video_status,
+                    session,
+                    session_order,
+                    iPadCandidate,
+                    iPadCandidate2,
+                )
+
+                # Write data to *.db
+                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?,?);', values)
 
     # Save (commit) the changes
     conn.commit()
@@ -372,14 +445,8 @@ def main():
         row += 1
         ws.write(row, 0, ipad_label, styleBold)
         if is_allocated == u'Y':
-            c.execute('SELECT SUM(session_order) FROM allocation_results WHERE ipad_label = ?', (ipad_label, ))
-            result = c.fetchall()[0][0]
-            if result == 1:
-                ws.write(row, 1, u'上午', styleRed)
-            elif result == 2:
-                ws.write(row, 1, u'下午', styleRed)
-            elif result == 3:
-                ws.write(row, 1, u'上午、下午', styleRed)
+            c.execute('SELECT session_order FROM allocation_results WHERE ipad_label = ?', (ipad_label, ))
+            ws.write(row, 1, reduce(lambda x, y: x + u'、' + y, [SESSION_ORDER_NAME[x[0]] for x in c.fetchall()]), styleRed)
         else:
             ws.write(row, 1, u'未分配')
         ws.write(row, 2, BIN2CHECK[vb_intro])
@@ -418,7 +485,7 @@ def main():
     c.execute('SELECT session, name, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, ipad_label ASC, lesson_order ASC;')
     for session, name, lesson_status, video_status, ipad_label in c.fetchall():
         if ipad_label in ROOM1707:
-            if lesson_status in LESSON_VB:
+            if lesson_status in VB_LESSON:
                 row += 1
                 ws.write(row, 0, row, styleBold)
                 ws.write(row, 1, session)
@@ -465,7 +532,7 @@ def main():
     c.execute('SELECT session, name, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, ipad_label ASC, lesson_order ASC;')
     for session, name, lesson_status, video_status, ipad_label in c.fetchall():
         if ipad_label in ROOM1707:
-            if lesson_status in LESSON_GRE:
+            if lesson_status in Y_GRE_LESSON:
                 row += 1
                 ws.write(row, 0, row, styleBold)
                 ws.write(row, 1, session)
