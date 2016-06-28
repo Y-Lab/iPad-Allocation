@@ -29,8 +29,8 @@ def main():
 
 
     # Connect to SQLite database
-    # database = ':memory:'
-    database = 'appointments_%s.db' % date
+    database = ':memory:'
+    # database = 'appointments_%s.db' % date
     if not existFile(database, overwrite=True, displayInfo=False):
         conn = sqlite3.connect(database)
     c = conn.cursor()
