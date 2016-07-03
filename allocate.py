@@ -17,8 +17,8 @@ def main():
     inputpath = os.path.join(rootpath, 'Data')
     outputpath = os.path.join(rootpath, 'Results')
 
-    # date = '20160630'
-    date = raw_input('Please input a date (e.g.: 20160430): ')
+    # date = '20160704'
+    date = raw_input('Please input a date (e.g.: 20160704): ')
     print '--'
 
     iPadContentsFile = os.path.join(inputpath, 'iPadContents.xls')
