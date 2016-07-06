@@ -254,6 +254,15 @@ SESSION_ORDER_NAME = {
     6: u'Y-GRE下午',
 }
 
+SESSION_ORDER_NAME_COLUMN = {
+    u'VB时段1': [1],
+    u'VB时段2': [2],
+    u'VB时段3': [3],
+    u'VB时段4': [4],
+    u'Y-GRE上午': [1, 2],
+    u'Y-GRE下午': [3, 4],
+}
+
 SESSION_OVERLAP = {
     u'8:00-11:30': [
         u'8:00-15:00',

@@ -2,11 +2,12 @@
 
 import os
 import sys
+import random
 import sqlite3
 import xlrd
 import xlwt
 from basic.common import getrootpath, makeDirsForFile, existFile
-from basic.data import BIN2CHECK, VB_SESSION, Y_GRE_SESSION, SESSION_ORDER, SESSION_ORDER_NAME, SESSION_OVERLAP, LESSON, VB_LESSON, Y_GRE_LESSON, LESSON_ORDER, LESSON_COLUMN, VIDEO_LESSON, ROOM1103, ROOM1707
+from basic.data import BIN2CHECK, VB_SESSION, Y_GRE_SESSION, SESSION_ORDER, SESSION_ORDER_NAME, SESSION_ORDER_NAME_COLUMN, SESSION_OVERLAP, LESSON, VB_LESSON, Y_GRE_LESSON, LESSON_ORDER, LESSON_COLUMN, VIDEO_LESSON, ROOM1103, ROOM1707
 
 reload(sys)
 sys.setdefaultencoding('utf-8');
@@ -17,8 +18,8 @@ def main():
     inputpath = os.path.join(rootpath, 'Data')
     outputpath = os.path.join(rootpath, 'Results')
 
-    # date = '20160704'
-    date = raw_input('Please input a date (e.g.: 20160704): ')
+    # date = '20160707'
+    date = raw_input('Please input a date (e.g.: 20160707): ')
     print '--'
 
     iPadContentsFile = os.path.join(inputpath, 'iPadContents.xls')
@@ -230,8 +231,7 @@ def main():
                 video_status,
                 session,
                 session_order,
-                ipad_label,
-                supplementary_ipad_label
+                ipad_label
             );
         ''')
     except Exception, e:
@@ -252,7 +252,10 @@ def main():
             c.execute('SELECT name, lesson_type, lesson_status, video_status FROM appointments WHERE session = ? AND lesson_status = ?;', (session, lesson, ))
             for name, lesson_type, lesson_status, video_status in c.fetchall():
                 allocation_uid += 1
-                c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC;' % LESSON_COLUMN[lesson_status])
+                if random.random() < 0.5:
+                    c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC, ipad_label ASC;' % LESSON_COLUMN[lesson_status])
+                else:
+                    c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC, ipad_label DESC;' % LESSON_COLUMN[lesson_status])
                 iPadCandidates = [x[0] for x in c.fetchall()]
                 allocated = False
                 for iPadCandidate in iPadCandidates:
@@ -268,8 +271,6 @@ def main():
                 lesson_order = LESSON_ORDER[lesson_status]
                 session_order = SESSION_ORDER[session]
 
-                iPadCandidate2 = u'N/A'
-
                 values = (
                     allocation_uid,
                     name,
@@ -280,11 +281,10 @@ def main():
                     session,
                     session_order,
                     iPadCandidate,
-                    iPadCandidate2,
                 )
 
                 # Write data to *.db
-                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?,?);', values)
+                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?);', values)
 
     # Save (commit) the changes
     conn.commit()
@@ -301,14 +301,20 @@ def main():
     for session in VB_SESSION:
         allocatediPads = []
         for overlappedSession in SESSION_OVERLAP[session]:
-            c.execute('SELECT ipad_label FROM allocation_results WHERE session_order = ?;', (SESSION_ORDER[overlappedSession], ))
+            if random.random() < 0.5:
+                c.execute('SELECT ipad_label FROM allocation_results WHERE session_order = ? ORDER BY ipad_label ASC;', (SESSION_ORDER[overlappedSession], ))
+            else:
+                c.execute('SELECT ipad_label FROM allocation_results WHERE session_order = ? ORDER BY ipad_label DESC;', (SESSION_ORDER[overlappedSession], ))
             allocatediPads += [x[0] for x in c.fetchall()]
         YGREAllocatediPads = allocatediPads
         for lesson in VBLessonsSortedByiPadQuantity:
             c.execute('SELECT name, lesson_type, lesson_status, video_status FROM appointments WHERE session = ? AND lesson_status = ?;', (session, lesson, ))
             for name, lesson_type, lesson_status, video_status in c.fetchall():
                 allocation_uid += 1
-                c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC;' % LESSON_COLUMN[lesson_status])
+                if random.random() < 0.5:
+                    c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC, ipad_label ASC;' % LESSON_COLUMN[lesson_status])
+                else:
+                    c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY lesson_quantity ASC, ipad_label DESC;' % LESSON_COLUMN[lesson_status])
                 iPadCandidates = [x[0] for x in c.fetchall()]
                 allocated = False
                 for iPadCandidate in iPadCandidates:
@@ -321,10 +327,35 @@ def main():
                     iPadCandidate = u'缺少资源'
                     print name, lesson_type, lesson_status, session, iPadCandidate
 
+                    # Re-allocate a Y-GRE user's iPad to a VB user, and find a new iPad for the Y-GRE user
+                    # Find iPads containing the VB user's demanding VB lesson
+                    c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 ORDER BY ipad_label ASC;' % LESSON_COLUMN[lesson_status])
+                    iPadCandidatesVBLesson = [x[0] for x in c.fetchall()]
+                    # Filter iPads allocated to a Y-GRE user
+                    iPadCandidatesVBLessonYGREUser = []
+                    for overlappedSession in SESSION_OVERLAP[session]:
+                        c.execute('SELECT allocation_uid, name, lesson_type, lesson_status, lesson_order, video_status, session, session_order, ipad_label FROM allocation_results WHERE lesson_type = "Y-GRE" AND session = ? ORDER BY ipad_label ASC;', (overlappedSession, ))
+                        iPadCandidatesVBLessonYGREUser += [x for x in c.fetchall() if x[8] in iPadCandidatesVBLesson]
+                    # Find a proper Y-GRE user's iPad, allocate this iPad to the VB user, and re-allocated a new iPad to the Y-GRE user
+                    for allocation_uid_gre_user, name_gre_user, lesson_type_gre_user, lesson_status_gre_user, lesson_order_gre_user, video_status_gre_user, session_gre_user, session_order_gre_user, ipad_label_gre_user in iPadCandidatesVBLessonYGREUser:
+                        c.execute('SELECT ipad_label FROM ipad_contents WHERE %s = 1 AND is_allocated = "N" ORDER BY ipad_label ASC;' % LESSON_COLUMN[lesson_status_gre_user])
+                        iPadCandidatesYGRELesson = [x[0] for x in c.fetchall()]
+                        if len(iPadCandidatesYGRELesson) > 0:
+                            iPadCandidate = ipad_label_gre_user
+                            allocated = True
+                            print 'Re-allocate:', name, lesson_type, lesson_status, session, '缺少资源 ->' ,iPadCandidate
+                            iPadCandidateYGREUserNew = iPadCandidatesYGRELesson[0]
+                            allocatediPads.append(iPadCandidateYGREUserNew)
+                            c.execute('UPDATE ipad_contents SET is_allocated = "Y" WHERE ipad_label = ?;', (iPadCandidateYGREUserNew, ))
+                            c.execute('UPDATE allocation_results SET ipad_label = ? WHERE allocation_uid = ?;', (iPadCandidateYGREUserNew, allocation_uid_gre_user, ))
+                            print 'Re-allocate:', name_gre_user, lesson_type_gre_user, lesson_status_gre_user, session_gre_user, ipad_label_gre_user, '->', iPadCandidateYGREUserNew
+                            break
+                    if not allocated:
+                        iPadCandidate = u'缺少资源'
+                        print name, lesson_type, lesson_status, session, iPadCandidate
+
                 lesson_order = LESSON_ORDER[lesson_status]
                 session_order = SESSION_ORDER[session]
-
-                iPadCandidate2 = u'N/A'
 
                 values = (
                     allocation_uid,
@@ -336,11 +367,10 @@ def main():
                     session,
                     session_order,
                     iPadCandidate,
-                    iPadCandidate2,
                 )
 
                 # Write data to *.db
-                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?,?);', values)
+                c.execute('INSERT INTO allocation_results VALUES (?,?,?,?,?,?,?,?,?);', values)
 
     # Save (commit) the changes
     conn.commit()
@@ -373,21 +403,23 @@ def main():
     ws.write(0, 0, u'#', styleBold)
     ws.write(0, 1, u'预约时间段', styleBold)
     ws.write(0, 2, u'姓名', styleBold)
-    ws.write(0, 3, u'课程进度', styleBold)
-    ws.write(0, 4, u'视频进度', styleBold)
-    ws.write(0, 5, u'机器编号', styleBold)
+    ws.write(0, 3, u'课程类型', styleBold)
+    ws.write(0, 4, u'课程进度', styleBold)
+    ws.write(0, 5, u'视频进度', styleBold)
+    ws.write(0, 6, u'机器编号', styleBold)
 
     row = 0
-    c.execute('SELECT session, name, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, lesson_order ASC, ipad_label ASC;')
-    for session, name, lesson_status, video_status, ipad_label in c.fetchall():
+    c.execute('SELECT session, name, lesson_type, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, lesson_order ASC, ipad_label ASC;')
+    for session, name, lesson_type, lesson_status, video_status, ipad_label in c.fetchall():
         if ipad_label in ROOM1103:
             row += 1
             ws.write(row, 0, row, styleBold)
             ws.write(row, 1, session)
             ws.write(row, 2, name)
-            ws.write(row, 3, lesson_status)
-            ws.write(row, 4, video_status)
-            ws.write(row, 5, ipad_label)
+            ws.write(row, 3, lesson_type)
+            ws.write(row, 4, lesson_status)
+            ws.write(row, 5, video_status)
+            ws.write(row, 6, ipad_label)
 
 
     # Sheet: 17th Floor
@@ -395,82 +427,112 @@ def main():
     ws.write(0, 0, u'#', styleBold)
     ws.write(0, 1, u'预约时间段', styleBold)
     ws.write(0, 2, u'姓名', styleBold)
-    ws.write(0, 3, u'课程进度', styleBold)
-    ws.write(0, 4, u'视频进度', styleBold)
-    ws.write(0, 5, u'机器编号', styleBold)
+    ws.write(0, 3, u'课程类型', styleBold)
+    ws.write(0, 4, u'课程进度', styleBold)
+    ws.write(0, 5, u'视频进度', styleBold)
+    ws.write(0, 6, u'机器编号', styleBold)
 
     row = 0
-    c.execute('SELECT session, name, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, lesson_order ASC, ipad_label ASC;')
-    for session, name, lesson_status, video_status, ipad_label in c.fetchall():
+    c.execute('SELECT session, name, lesson_type, lesson_status, video_status, ipad_label FROM allocation_results ORDER BY session_order ASC, lesson_order ASC, ipad_label ASC;')
+    for session, name, lesson_type, lesson_status, video_status, ipad_label in c.fetchall():
         if ipad_label in ROOM1707:
             row += 1
             ws.write(row, 0, row, styleBold)
             ws.write(row, 1, session)
             ws.write(row, 2, name)
-            ws.write(row, 3, lesson_status)
-            ws.write(row, 4, video_status)
-            ws.write(row, 5, ipad_label)
+            ws.write(row, 3, lesson_type)
+            ws.write(row, 4, lesson_status)
+            ws.write(row, 5, video_status)
+            ws.write(row, 6, ipad_label)
+
+
+    # Sheet: Not Allocated
+    ws = wb.add_sheet(u'缺少资源')
+    ws.write(0, 0, u'#', styleBold)
+    ws.write(0, 1, u'预约时间段', styleBold)
+    ws.write(0, 2, u'姓名', styleBold)
+    ws.write(0, 3, u'课程类型', styleBold)
+    ws.write(0, 4, u'课程进度', styleBold)
+    ws.write(0, 5, u'视频进度', styleBold)
+
+    row = 0
+    c.execute('SELECT session, name, lesson_type, lesson_status, video_status FROM allocation_results WHERE ipad_label = "缺少资源" ORDER BY session_order ASC, lesson_order ASC;')
+    for session, name, lesson_type, lesson_status, video_status in c.fetchall():
+        row += 1
+        ws.write(row, 0, row, styleBold)
+        ws.write(row, 1, session)
+        ws.write(row, 2, name)
+        ws.write(row, 3, lesson_type)
+        ws.write(row, 4, lesson_status)
+        ws.write(row, 5, video_status)
 
 
     # Sheet: iPad Contents
     ws = wb.add_sheet(u'iPad资源统计')
     ws.write(0, 0, u'iPad# ', styleBold)
-    ws.write(0, 1, u'分配状态', styleBold)
-    ws.write(0, 2, u'VB总论', styleBold)
-    ws.write(0, 3, u'L1', styleBold)
-    ws.write(0, 4, u'L2', styleBold)
-    ws.write(0, 5, u'L3', styleBold)
-    ws.write(0, 6, u'L4', styleBold)
-    ws.write(0, 7, u'L5', styleBold)
-    ws.write(0, 8, u'L6', styleBold)
-    ws.write(0, 9, u'L7', styleBold)
-    ws.write(0, 10, u'L8', styleBold)
-    ws.write(0, 11, u'L9', styleBold)
-    ws.write(0, 12, u'GRE总论', styleBold)
-    ws.write(0, 13, u'1st', styleBold)
-    ws.write(0, 14, u'2nd', styleBold)
-    ws.write(0, 15, u'3rd', styleBold)
-    ws.write(0, 16, u'4th', styleBold)
-    ws.write(0, 17, u'5th', styleBold)
-    ws.write(0, 18, u'6th', styleBold)
-    ws.write(0, 19, u'7th', styleBold)
-    ws.write(0, 20, u'8th', styleBold)
-    ws.write(0, 21, u'9th', styleBold)
-    ws.write(0, 22, u'Test', styleBold)
-    ws.write(0, 23, u'AW总论', styleBold)
+    ws.write(0, 1, u'时段1', styleBold)
+    ws.write(0, 2, u'时段2', styleBold)
+    ws.write(0, 3, u'时段3', styleBold)
+    ws.write(0, 4, u'时段4', styleBold)
+    ws.write(0, 5, u'VB总论', styleBold)
+    ws.write(0, 6, u'L1', styleBold)
+    ws.write(0, 7, u'L2', styleBold)
+    ws.write(0, 8, u'L3', styleBold)
+    ws.write(0, 9, u'L4', styleBold)
+    ws.write(0, 10, u'L5', styleBold)
+    ws.write(0, 11, u'L6', styleBold)
+    ws.write(0, 12, u'L7', styleBold)
+    ws.write(0, 13, u'L8', styleBold)
+    ws.write(0, 14, u'L9', styleBold)
+    ws.write(0, 15, u'GRE总论', styleBold)
+    ws.write(0, 16, u'1st', styleBold)
+    ws.write(0, 17, u'2nd', styleBold)
+    ws.write(0, 18, u'3rd', styleBold)
+    ws.write(0, 19, u'4th', styleBold)
+    ws.write(0, 20, u'5th', styleBold)
+    ws.write(0, 21, u'6th', styleBold)
+    ws.write(0, 22, u'7th', styleBold)
+    ws.write(0, 23, u'8th', styleBold)
+    ws.write(0, 24, u'9th', styleBold)
+    ws.write(0, 25, u'Test', styleBold)
+    ws.write(0, 26, u'AW总论', styleBold)
 
     row = 0
     c.execute('SELECT ipad_label, is_allocated, vb_intro, vb_1, vb_2, vb_3, vb_4, vb_5, vb_6, vb_7, vb_8, vb_9, gre_intro, gre_1, gre_2, gre_3, gre_4, gre_5, gre_6, gre_7, gre_8, gre_9, gre_test, aw_intro FROM ipad_contents ORDER BY ipad_order ASC;')
     for ipad_label, is_allocated, vb_intro, vb_1, vb_2, vb_3, vb_4, vb_5, vb_6, vb_7, vb_8, vb_9, gre_intro, gre_1, gre_2, gre_3, gre_4, gre_5, gre_6, gre_7, gre_8, gre_9, gre_test, aw_intro in c.fetchall():
         row += 1
         ws.write(row, 0, ipad_label, styleBold)
+        vacuumSessionColumn = [1, 2, 3, 4]
         if is_allocated == u'Y':
             c.execute('SELECT session_order FROM allocation_results WHERE ipad_label = ?', (ipad_label, ))
-            ws.write(row, 1, reduce(lambda x, y: x + u'、' + y, [SESSION_ORDER_NAME[x[0]] for x in c.fetchall()]), styleRed)
-        else:
-            ws.write(row, 1, u'未分配')
-        ws.write(row, 2, BIN2CHECK[vb_intro])
-        ws.write(row, 3, BIN2CHECK[vb_1])
-        ws.write(row, 4, BIN2CHECK[vb_2])
-        ws.write(row, 5, BIN2CHECK[vb_3])
-        ws.write(row, 6, BIN2CHECK[vb_4])
-        ws.write(row, 7, BIN2CHECK[vb_5])
-        ws.write(row, 8, BIN2CHECK[vb_6])
-        ws.write(row, 9, BIN2CHECK[vb_7])
-        ws.write(row, 10, BIN2CHECK[vb_8])
-        ws.write(row, 11, BIN2CHECK[vb_9])
-        ws.write(row, 12, BIN2CHECK[gre_intro])
-        ws.write(row, 13, BIN2CHECK[gre_1])
-        ws.write(row, 14, BIN2CHECK[gre_2])
-        ws.write(row, 15, BIN2CHECK[gre_3])
-        ws.write(row, 16, BIN2CHECK[gre_4])
-        ws.write(row, 17, BIN2CHECK[gre_5])
-        ws.write(row, 18, BIN2CHECK[gre_6])
-        ws.write(row, 19, BIN2CHECK[gre_7])
-        ws.write(row, 20, BIN2CHECK[gre_8])
-        ws.write(row, 21, BIN2CHECK[gre_9])
-        ws.write(row, 22, BIN2CHECK[gre_test])
-        ws.write(row, 23, BIN2CHECK[aw_intro])
+            for sessionName in [SESSION_ORDER_NAME[x[0]] for x in c.fetchall()]:
+                for column in SESSION_ORDER_NAME_COLUMN[sessionName]:
+                    vacuumSessionColumn.remove(column)
+                    ws.write(row, column, sessionName, styleRed)
+        for column in vacuumSessionColumn:
+            ws.write(row, column, u'未分配')
+        ws.write(row, 5, BIN2CHECK[vb_intro])
+        ws.write(row, 6, BIN2CHECK[vb_1])
+        ws.write(row, 7, BIN2CHECK[vb_2])
+        ws.write(row, 8, BIN2CHECK[vb_3])
+        ws.write(row, 9, BIN2CHECK[vb_4])
+        ws.write(row, 10, BIN2CHECK[vb_5])
+        ws.write(row, 11, BIN2CHECK[vb_6])
+        ws.write(row, 12, BIN2CHECK[vb_7])
+        ws.write(row, 13, BIN2CHECK[vb_8])
+        ws.write(row, 14, BIN2CHECK[vb_9])
+        ws.write(row, 15, BIN2CHECK[gre_intro])
+        ws.write(row, 16, BIN2CHECK[gre_1])
+        ws.write(row, 17, BIN2CHECK[gre_2])
+        ws.write(row, 18, BIN2CHECK[gre_3])
+        ws.write(row, 19, BIN2CHECK[gre_4])
+        ws.write(row, 20, BIN2CHECK[gre_5])
+        ws.write(row, 21, BIN2CHECK[gre_6])
+        ws.write(row, 22, BIN2CHECK[gre_7])
+        ws.write(row, 23, BIN2CHECK[gre_8])
+        ws.write(row, 24, BIN2CHECK[gre_9])
+        ws.write(row, 25, BIN2CHECK[gre_test])
+        ws.write(row, 26, BIN2CHECK[aw_intro])
 
 
     # Sheet: VB
